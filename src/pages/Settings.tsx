@@ -65,7 +65,7 @@ export default function Settings() {
         <div>
           <h2 className="text-sm font-semibold text-white mb-1">Upload Roster</h2>
           <p className="text-xs text-[#555] leading-relaxed">
-            CSV with <code className="bg-[#1a1a1a] px-1.5 py-0.5 rounded text-[#888]">course</code> and <code className="bg-[#1a1a1a] px-1.5 py-0.5 rounded text-[#888]">name</code> columns.
+            CSV with <code className="bg-[#1a1a1a] px-1.5 py-0.5 rounded text-[#888]">course</code>, <code className="bg-[#1a1a1a] px-1.5 py-0.5 rounded text-[#888]">name</code>, and optional <code className="bg-[#1a1a1a] px-1.5 py-0.5 rounded text-[#888]">image-file</code> columns.
             <span className="text-[#6b3232] ml-1">Replaces all students & resets cycle.</span>
           </p>
         </div>

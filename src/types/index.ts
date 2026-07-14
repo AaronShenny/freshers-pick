@@ -2,6 +2,7 @@ export interface Student {
   id: string;
   course: string;
   name: string;
+  image_file?: string;
   present: boolean;
   created_at: string;
 }

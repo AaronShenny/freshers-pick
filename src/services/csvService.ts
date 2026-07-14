@@ -23,6 +23,7 @@ export const parseCSV = (file: File): Promise<Omit<Student, 'id' | 'created_at'>
         for (const row of data) {
           const course = String(row.course).trim();
           const name = String(row.name).trim();
+          const image_file = row['image-file'] ? String(row['image-file']).trim() : undefined;
 
           if (!course || !name) continue;
 
@@ -34,6 +35,7 @@ export const parseCSV = (file: File): Promise<Omit<Student, 'id' | 'created_at'>
           students.push({
             course,
             name,
+            ...(image_file && { image_file }),
             present: true,
           });
         }

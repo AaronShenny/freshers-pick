@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { fetchHistory } from '../services/historyService';
 import { revealNextBatch, confirmSelection } from '../services/pickerService';
 import { getAppState } from '../services/stateService';
@@ -6,13 +6,50 @@ import { toggleStudentPresence } from '../services/studentService';
 import type { Student, HistoryRecord } from '../types';
 import FlickerSpinner from '../components/FlickerSpinner';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Check } from 'lucide-react';
+import { X, Check, AlertCircle, UserX } from 'lucide-react';
 
+// ---------------------------------------------------------------------------
+// Toast
+// ---------------------------------------------------------------------------
+type ToastKind = 'success' | 'error' | 'info';
+interface ToastState { message: string; kind: ToastKind; id: number; }
+let _toastId = 0;
+
+function Toast({ toast }: { toast: ToastState | null }) {
+  if (!toast) return null;
+  const colors: Record<ToastKind, { bg: string; border: string; dot: string; text: string }> = {
+    success: { bg: 'rgba(74,222,128,0.10)', border: 'rgba(74,222,128,0.25)', dot: '#4ade80', text: '#4ade80' },
+    error:   { bg: 'rgba(239,68,68,0.10)',  border: 'rgba(239,68,68,0.25)',  dot: '#f87171', text: '#f87171' },
+    info:    { bg: 'rgba(147,197,253,0.10)', border: 'rgba(147,197,253,0.25)', dot: '#93c5fd', text: '#93c5fd' },
+  };
+  const c = colors[toast.kind];
+  return (
+    <div key={toast.id} className="fixed bottom-8 left-1/2 -translate-x-1/2 z-[100] pointer-events-none">
+      <motion.div
+        initial={{ opacity: 0, y: 12, scale: 0.95 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        exit={{ opacity: 0, y: 8, scale: 0.95 }}
+        className="flex items-center gap-3 px-5 py-3 rounded-xl text-sm font-medium shadow-2xl"
+        style={{ background: c.bg, border: `1px solid ${c.border}`, color: c.text, backdropFilter: 'blur(12px)' }}
+      >
+        <span style={{ width: 7, height: 7, borderRadius: '50%', background: c.dot, flexShrink: 0 }} />
+        {toast.message}
+      </motion.div>
+    </div>
+  );
+}
+
+
+// ---------------------------------------------------------------------------
+// Dashboard
+// ---------------------------------------------------------------------------
 export default function Dashboard() {
   const [history, setHistory] = useState<HistoryRecord[]>([]);
   const [cycle, setCycle] = useState(1);
   const [loading, setLoading] = useState(true);
   const [revealing, setRevealing] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [markingAbsent, setMarkingAbsent] = useState<string | null>(null);
 
   const [selectCount, setSelectCount] = useState(1);
   const [subCount, setSubCount] = useState(0);
@@ -20,13 +57,22 @@ export default function Dashboard() {
   const [pendingSelection, setPendingSelection] = useState<Student[]>([]);
   const [pendingSubstitutes, setPendingSubstitutes] = useState<Student[]>([]);
 
+  const [toast, setToast] = useState<ToastState | null>(null);
+
+  const showToast = useCallback((message: string, kind: ToastKind = 'info') => {
+    const id = ++_toastId;
+    setToast({ message, kind, id });
+    setTimeout(() => setToast(t => t?.id === id ? null : t), 3500);
+  }, []);
+
   const loadData = async () => {
     try {
       const [histData, stateData] = await Promise.all([fetchHistory(), getAppState()]);
-      setHistory(histData.slice(0, 6));
+      setHistory(histData.slice(0, 8));
       setCycle(stateData.current_cycle);
     } catch (e) {
       console.error(e);
+      showToast('Failed to load data. Check your connection.', 'error');
     } finally {
       setLoading(false);
     }
@@ -35,6 +81,7 @@ export default function Dashboard() {
   useEffect(() => { loadData(); }, []);
 
   const handleReveal = async () => {
+    if (revealing) return;
     setRevealing(true);
     setPendingSelection([]);
     setPendingSubstitutes([]);
@@ -42,13 +89,35 @@ export default function Dashboard() {
     setTimeout(async () => {
       try {
         const batch = await revealNextBatch(selectCount, subCount);
-        if (batch) {
-          setPendingSelection(batch.primaries);
-          setPendingSubstitutes(batch.substitutes);
+        if (!batch) {
+          showToast('No present students found. Mark students as present first.', 'error');
+          setRevealing(false);
+          return;
         }
+
+        const primariesGot = batch.primaries.length;
+        const subsGot = batch.substitutes.length;
+
+        setPendingSelection(batch.primaries);
+        setPendingSubstitutes(batch.substitutes);
+
+        // Warn if fewer students than requested
+        if (primariesGot < selectCount) {
+          showToast(
+            `Only ${primariesGot} present student${primariesGot !== 1 ? 's' : ''} available (requested ${selectCount}).`,
+            'info'
+          );
+        } else if (subsGot < subCount) {
+          showToast(
+            `Only ${subsGot} substitute${subsGot !== 1 ? 's' : ''} available (requested ${subCount}).`,
+            'info'
+          );
+        }
+
         await loadData();
       } catch (e) {
         console.error(e);
+        showToast('Failed to pick students. Please try again.', 'error');
       } finally {
         setRevealing(false);
       }
@@ -56,40 +125,56 @@ export default function Dashboard() {
   };
 
   const handleMarkAbsent = async (student: Student) => {
+    if (markingAbsent) return; // prevent double-clicking
+    setMarkingAbsent(student.id);
     try {
       await toggleStudentPresence(student.id, true);
-      
-      let newSelection = pendingSelection.filter(s => s.id !== student.id);
-      let newSubs = [...pendingSubstitutes];
 
-      if (newSubs.length > 0) {
-        const substitute = newSubs.shift()!;
-        newSelection.push(substitute);
-      }
+      // Remove from selection, pull next sub in
+      setPendingSelection(prev => {
+        const newSel = prev.filter(s => s.id !== student.id);
+        
+        if (pendingSubstitutes.length > 0) {
+          const nextSub = pendingSubstitutes[0];
+          newSel.push(nextSub);
+          showToast(`${student.name} marked absent — ${nextSub.name} substituted in.`, 'info');
+        } else {
+          showToast(`${student.name} marked absent. No more substitutes.`, 'info');
+        }
+        return newSel;
+      });
 
-      setPendingSelection(newSelection);
-      setPendingSubstitutes(newSubs);
+      setPendingSubstitutes(prevSubs => {
+        if (prevSubs.length > 0) {
+           return prevSubs.slice(1);
+        }
+        return prevSubs;
+      });
     } catch (e) {
       console.error(e);
+      showToast(`Failed to mark ${student.name} as absent. Please try again.`, 'error');
+    } finally {
+      setMarkingAbsent(null);
     }
   };
 
-  const handleManualSubstitute = (substitute: Student) => {
-    setPendingSelection([...pendingSelection, substitute]);
-    setPendingSubstitutes(pendingSubstitutes.filter(s => s.id !== substitute.id));
-  };
+
 
   const handleConfirm = async () => {
-    setLoading(true);
+    if (confirming) return;
+    setConfirming(true);
     try {
       await confirmSelection(pendingSelection, pendingSubstitutes);
+      const count = pendingSelection.length;
       setPendingSelection([]);
       setPendingSubstitutes([]);
       await loadData();
+      showToast(`${count} student${count !== 1 ? 's' : ''} confirmed!`, 'success');
     } catch (e) {
       console.error(e);
+      showToast('Failed to confirm selection. Please try again.', 'error');
     } finally {
-      setLoading(false);
+      setConfirming(false);
     }
   };
 
@@ -104,158 +189,262 @@ export default function Dashboard() {
   }
 
   return (
-    <div className="flex flex-col gap-8 animate-fade-up">
-      {/* Page header */}
-      <div>
-        <p className="text-[#444] text-xs uppercase tracking-widest font-medium mb-1">Cycle {cycle}</p>
-        <h1 className="font-display text-3xl text-white tracking-tight">Who's next?</h1>
+    <>
+      <div className="flex flex-col gap-8 animate-fade-up h-full">
+        {/* Page header */}
+        <div>
+          <p className="text-[#444] text-xs uppercase tracking-widest font-medium mb-1">Cycle {cycle}</p>
+          <h1 className="font-display text-3xl text-white tracking-tight">Who's next?</h1>
+        </div>
+
+        <div className="grid grid-cols-5 gap-6 flex-1 min-h-0">
+          {/* === Main reveal card === */}
+          <div className="col-span-3 panel flex flex-col h-full overflow-hidden">
+            <div className="flex-1 flex flex-col items-center justify-center p-8 overflow-y-auto min-h-0">
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                className="text-center m-auto"
+              >
+                <div className="dot-pulse flex items-center justify-center gap-1.5 mb-4">
+                  <span /><span /><span />
+                </div>
+                <p className="text-[#333] text-sm">Ready when you are</p>
+              </motion.div>
+            </div>
+
+            {/* Controls */}
+            <div className="p-6 border-t border-[#181818] flex flex-col gap-5">
+              <div className="flex gap-4 items-center px-1">
+                <div className="flex flex-col gap-1.5 flex-1">
+                  <label className="text-[#555] text-[10px] uppercase tracking-widest font-medium">Select Count</label>
+                  <input
+                    type="number" min={1} max={50} value={selectCount}
+                    onChange={e => setSelectCount(Math.max(1, Number(e.target.value)))}
+                    className="bg-[#111] border border-[#1e1e1e] text-white rounded-xl px-4 py-2.5 text-sm outline-none focus:border-[#444] focus:bg-[#141414] transition-colors"
+                  />
+                </div>
+                <div className="flex flex-col gap-1.5 flex-1">
+                  <label className="text-[#555] text-[10px] uppercase tracking-widest font-medium">Substitutes</label>
+                  <input
+                    type="number" min={0} max={50} value={subCount}
+                    onChange={e => setSubCount(Math.max(0, Number(e.target.value)))}
+                    className="bg-[#111] border border-[#1e1e1e] text-white rounded-xl px-4 py-2.5 text-sm outline-none focus:border-[#444] focus:bg-[#141414] transition-colors"
+                  />
+                </div>
+              </div>
+              <button
+                onClick={handleReveal}
+                disabled={revealing}
+                className="w-full py-4 rounded-xl bg-white text-black text-sm font-semibold transition-all duration-200 hover:bg-[#e8e8e8] active:scale-[0.99] disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                {revealing ? 'Picking…' : 'Reveal Student(s)'}
+              </button>
+            </div>
+          </div>
+
+          {/* === Recent picks === */}
+          <div className="col-span-2 panel flex flex-col overflow-hidden h-full">
+            <div className="px-5 py-4 border-b border-[#181818]">
+              <h3 className="text-sm font-medium text-[#888]">Recent Picks</h3>
+            </div>
+
+            <div className="flex-1 overflow-y-auto">
+              {history.length === 0 ? (
+                <div className="flex items-center justify-center h-full p-8">
+                  <p className="text-[#333] text-sm text-center">No picks yet</p>
+                </div>
+              ) : (
+                <div className="divide-y divide-[#161616]">
+                  {history.map((record, i) => (
+                    <motion.div
+                      key={record.id}
+                      initial={{ opacity: 0, x: 10 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: i * 0.05 }}
+                      className="flex items-center justify-between gap-3 px-5 py-3.5 hover:bg-[#141414] transition-colors min-w-0"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium text-white truncate">{record.student_name}</p>
+                        <p className="text-xs text-[#444] mt-0.5">
+                          {new Date(record.selected_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </p>
+                      </div>
+                      <span className="text-xs font-mono text-[#333] shrink-0">{record.course}</span>
+                    </motion.div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
       </div>
 
-      <div className="grid grid-cols-5 gap-6">
-        {/* === Main reveal card === */}
-        <div className="col-span-3 panel flex flex-col min-h-[440px] overflow-hidden">
-          {/* Student display area */}
-          <div className="flex-1 flex flex-col items-center justify-center p-8 overflow-y-auto min-h-0">
-            <AnimatePresence mode="wait">
-              {revealing ? (
-                <motion.div
-                  key="loading"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  className="flex flex-col items-center gap-5 m-auto"
-                >
-                  <FlickerSpinner size={48} />
-                  <p className="text-[#444] text-xs tracking-[0.25em] uppercase">Selecting…</p>
-                </motion.div>
-              ) : hasPending ? (
-                <motion.div
-                  key="result"
-                  initial={{ opacity: 0, y: 16 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-                  className="w-full max-w-md flex flex-col gap-6"
-                >
-                  <div className="space-y-3">
-                    {pendingSelection.map((student) => (
-                      <div key={student.id} className="bg-[#161616] border border-[#222] rounded-xl p-5 flex items-center justify-between group transition-colors hover:border-[#333]">
-                        <div>
-                          <p className="text-[#555] text-xs font-mono tracking-widest mb-1.5">{student.course}</p>
-                          <h3 className="text-white text-2xl font-display">{student.name}</h3>
+      <AnimatePresence>
+        {(revealing || hasPending) && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-[#111]/95 backdrop-blur-sm"
+          >
+            {revealing ? (
+              <div className="flex flex-col items-center gap-5">
+                <FlickerSpinner size={64} />
+                <p className="text-[#666] text-sm tracking-[0.3em] uppercase">Selecting…</p>
+              </div>
+            ) : (
+              <motion.div
+                initial={{ opacity: 0, scale: 0.96 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ type: 'spring', stiffness: 220, damping: 26 }}
+                className="w-full h-full flex flex-col overflow-hidden"
+              >
+                {/* Cards area */}
+                <div className="flex-1 flex flex-col items-center px-8 pt-16 pb-8 overflow-y-auto">
+                  <div className="my-auto flex flex-col items-center w-full">
+                    {/* Primary selections */}
+                    <AnimatePresence mode="popLayout">
+                      {pendingSelection.length > 0 ? (
+                        <div className="flex flex-wrap justify-center gap-x-12 gap-y-16 max-w-[95vw]">
+                          {pendingSelection.map(student => (
+                            <motion.div
+                              layout
+                              key={student.id}
+                              initial={{ opacity: 0, y: 24, scale: 0.92 }}
+                              animate={{ opacity: 1, y: 0, scale: 1 }}
+                              exit={{ opacity: 0, scale: 0.88, y: -12 }}
+                              transition={{ type: 'spring', stiffness: 260, damping: 26 }}
+                              className="relative flex flex-col items-center w-52 group"
+                            >
+                              <button
+                                onClick={() => handleMarkAbsent(student)}
+                                disabled={!!markingAbsent}
+                                className="absolute -top-12 -right-4 p-2 text-white hover:text-red-400 hover:scale-110 transition-transform z-10 disabled:opacity-40 disabled:cursor-not-allowed"
+                                title="Mark absent & pull substitute"
+                              >
+                                <X size={36} strokeWidth={1.5} />
+                              </button>
+
+                              <div className="w-48 h-48 bg-white overflow-hidden flex items-center justify-center mb-6 shadow-2xl rounded-sm">
+                                {student.image_file ? (
+                                  <img
+                                    src={student.image_file}
+                                    alt={student.name}
+                                    className="w-full h-full object-cover"
+                                    onError={(e) => {
+                                      (e.target as HTMLImageElement).src =
+                                        `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(student.name)}`;
+                                    }}
+                                  />
+                                ) : (
+                                  <img
+                                    src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(student.name)}`}
+                                    alt={student.name}
+                                    className="w-full h-full object-cover p-3 bg-[#e6f0fa]"
+                                  />
+                                )}
+                              </div>
+
+                              <div className="text-center w-full px-1">
+                                <h3 className="text-white font-display text-4xl mb-2 leading-none tracking-tight">{student.name}</h3>
+                                <p className="text-[#888] text-sm tracking-wide font-light">{student.course}</p>
+                              </div>
+                            </motion.div>
+                          ))}
                         </div>
-                        <button onClick={() => handleMarkAbsent(student)} className="p-2 text-[#555] hover:text-red-400 hover:bg-red-950/30 rounded-lg transition-colors" title="Mark Absent">
-                          <X size={20} />
-                        </button>
-                      </div>
-                    ))}
-                    {pendingSelection.length === 0 && (
-                      <p className="text-[#555] text-sm text-center py-4">No students selected.</p>
+                      ) : (
+                        <motion.div
+                          key="all-absent"
+                          initial={{ opacity: 0 }}
+                          animate={{ opacity: 1 }}
+                          className="flex flex-col items-center gap-3 text-center"
+                        >
+                          <UserX size={40} className="text-[#444]" />
+                          <p className="text-[#666] text-lg">All selected students marked absent.</p>
+                          {pendingSubstitutes.length > 0 && (
+                            <p className="text-[#444] text-sm">Pull in a substitute below, or confirm to close.</p>
+                          )}
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+
+                    {/* Substitutes row */}
+                    <AnimatePresence>
+                      {pendingSubstitutes.length > 0 && (
+                        <motion.div
+                          key="subs"
+                          initial={{ opacity: 0, y: 8 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: 4 }}
+                          className="mt-12 flex flex-col items-center gap-4"
+                        >
+                          <p className="text-[#555] text-xs uppercase tracking-[0.2em] font-medium">
+                            Substitutes in Queue
+                          </p>
+                          <div className="flex flex-wrap justify-center gap-3">
+                            {pendingSubstitutes.map((student, i) => (
+                              <div
+                                key={student.id}
+                                className="flex items-center gap-3 px-5 py-2 rounded-full bg-[#1a1a1a] border border-[#222] text-[#888] select-none"
+                              >
+                                <div className="w-4 h-4 rounded-full bg-[#333] text-black flex items-center justify-center text-[10px] font-bold">
+                                  {i + 1}
+                                </div>
+                                <div className="flex items-center gap-2 blur-[5px] opacity-60 pointer-events-none">
+                                  <span>{student.name}</span>
+                                  <span className="text-[10px] uppercase font-mono">{student.course}</span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+
+                    {/* Warning if no subs left and no selections */}
+                    {pendingSelection.length === 0 && pendingSubstitutes.length === 0 && (
+                      <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        className="mt-8 flex items-center gap-2 text-[#555] text-sm"
+                      >
+                        <AlertCircle size={14} />
+                        No students remaining. Confirm to close.
+                      </motion.div>
                     )}
                   </div>
-
-                  {pendingSubstitutes.length > 0 && (
-                    <div className="space-y-2 mt-2 pt-4 border-t border-[#1a1a1a]">
-                      <p className="text-[#555] text-[10px] uppercase tracking-widest font-medium mb-3">Substitutes</p>
-                      {pendingSubstitutes.map(student => (
-                        <div key={student.id} className="bg-[#111] border border-[#1a1a1a] rounded-xl p-3.5 flex items-center justify-between opacity-50 blur-[3px] hover:blur-none hover:opacity-100 hover:border-[#333] transition-all duration-300">
-                          <div>
-                            <p className="text-[#444] text-[10px] font-mono tracking-widest mb-0.5">{student.course}</p>
-                            <h3 className="text-[#aaa] text-base font-medium">{student.name}</h3>
-                          </div>
-                          <button onClick={() => handleManualSubstitute(student)} className="p-1.5 text-[#555] hover:text-green-400 hover:bg-green-950/30 rounded-lg transition-colors" title="Use Substitute">
-                            <Check size={18} />
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </motion.div>
-              ) : (
-                <motion.div
-                  key="idle"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  className="text-center m-auto"
-                >
-                  <div className="dot-pulse flex items-center justify-center gap-1.5 mb-4">
-                    <span /><span /><span />
-                  </div>
-                  <p className="text-[#333] text-sm">Ready when you are</p>
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
-
-          {/* Controls */}
-          <div className="p-6 border-t border-[#181818] flex flex-col gap-5">
-            {!hasPending ? (
-              <>
-                <div className="flex gap-4 items-center px-1">
-                  <div className="flex flex-col gap-1.5 flex-1">
-                    <label className="text-[#555] text-[10px] uppercase tracking-widest font-medium">Select Count</label>
-                    <input type="number" min={1} max={50} value={selectCount} onChange={e => setSelectCount(Number(e.target.value))} className="bg-[#111] border border-[#1e1e1e] text-white rounded-xl px-4 py-2.5 text-sm outline-none focus:border-[#444] focus:bg-[#141414] transition-colors" />
-                  </div>
-                  <div className="flex flex-col gap-1.5 flex-1">
-                    <label className="text-[#555] text-[10px] uppercase tracking-widest font-medium">Substitutes</label>
-                    <input type="number" min={0} max={50} value={subCount} onChange={e => setSubCount(Number(e.target.value))} className="bg-[#111] border border-[#1e1e1e] text-white rounded-xl px-4 py-2.5 text-sm outline-none focus:border-[#444] focus:bg-[#141414] transition-colors" />
-                  </div>
                 </div>
-                <button
-                  onClick={handleReveal}
-                  disabled={revealing}
-                  className="w-full py-4 rounded-xl bg-white text-black text-sm font-semibold transition-all duration-200 hover:bg-[#e8e8e8] active:scale-[0.99] disabled:opacity-30 disabled:cursor-not-allowed"
-                >
-                  {revealing ? 'Picking…' : 'Reveal Student(s)'}
-                </button>
-              </>
-            ) : (
-              <button
-                onClick={handleConfirm}
-                disabled={revealing}
-                className="w-full py-4 rounded-xl bg-[#222] border border-[#333] text-white text-sm font-semibold transition-all duration-200 hover:bg-[#2a2a2a] hover:border-[#444] active:scale-[0.99] disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-              >
-                <Check size={18} />
-                Confirm Selection
-              </button>
-            )}
-          </div>
-        </div>
 
-        {/* === Recent picks === */}
-        <div className="col-span-2 panel flex flex-col overflow-hidden max-h-[500px]">
-          <div className="px-5 py-4 border-b border-[#181818]">
-            <h3 className="text-sm font-medium text-[#888]">Recent Picks</h3>
-          </div>
-
-          <div className="flex-1 overflow-y-auto">
-            {history.length === 0 ? (
-              <div className="flex items-center justify-center h-full p-8">
-                <p className="text-[#333] text-sm text-center">No picks yet</p>
-              </div>
-            ) : (
-              <div className="divide-y divide-[#161616]">
-                {history.map((record, i) => (
-                  <motion.div
-                    key={record.id}
-                    initial={{ opacity: 0, x: 10 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ delay: i * 0.05 }}
-                    className="flex items-center justify-between gap-3 px-5 py-3.5 hover:bg-[#141414] transition-colors min-w-0"
+                {/* Bottom action bar */}
+                <div className="shrink-0 flex items-center justify-center pb-12 pt-4">
+                  <button
+                    onClick={handleConfirm}
+                    disabled={confirming}
+                    className="px-16 py-4 rounded-xl bg-white text-black font-semibold text-lg transition-all hover:bg-[#e8e8e8] active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-3 shadow-[0_0_40px_rgba(255,255,255,0.1)]"
                   >
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium text-white truncate">{record.student_name}</p>
-                      <p className="text-xs text-[#444] mt-0.5">
-                        {new Date(record.selected_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                      </p>
-                    </div>
-                    <span className="text-xs font-mono text-[#333] shrink-0">{record.course}</span>
-                  </motion.div>
-                ))}
-              </div>
+                    {confirming ? (
+                      <>
+                        <FlickerSpinner size={18} />
+                        Confirming…
+                      </>
+                    ) : (
+                      'Confirm selection'
+                    )}
+                  </button>
+                </div>
+              </motion.div>
             )}
-          </div>
-        </div>
-      </div>
-    </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Toast */}
+      <AnimatePresence>
+        {toast && <Toast toast={toast} />}
+      </AnimatePresence>
+    </>
   );
 }
+

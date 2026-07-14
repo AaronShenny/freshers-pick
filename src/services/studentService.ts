@@ -40,6 +40,17 @@ export const replaceStudents = async (students: Omit<Student, 'id' | 'created_at
   }
 };
 
+export const addStudent = async (name: string, course: string): Promise<Student> => {
+  const { data, error } = await supabase
+    .from('students')
+    .insert([{ name, course, present: true }])
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data as Student;
+};
+
 export const toggleStudentPresence = async (id: string, currentStatus: boolean) => {
   const { error } = await supabase
     .from('students')
