@@ -36,7 +36,7 @@ jobs:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
           # Tells Vite to set base = /picker/ so all assets are prefixed correctly
-          VITE_BASE_URL: "/picker/"
+          VITE_BASE_URL: "/freshers-pick/"
 
       - name: Setup Pages
         uses: actions/configure-pages@v4
