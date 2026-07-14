@@ -9,7 +9,7 @@ export default defineConfig(({ mode }) => {
 
   // Default to /picker/ (GitHub Pages sub-path).
   // .env.development overrides this to / for local dev.
-  const base = env.VITE_BASE_URL ?? "/picker/";
+  const base = env.VITE_BASE_URL ?? "/freshers-pick/";
 
   return {
     base,
