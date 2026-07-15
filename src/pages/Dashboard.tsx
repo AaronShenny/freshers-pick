@@ -5,6 +5,7 @@ import { getAppState } from '../services/stateService';
 import { toggleStudentPresence } from '../services/studentService';
 import type { Student, HistoryRecord } from '../types';
 import FlickerSpinner from '../components/FlickerSpinner';
+import { SafeImage } from '../components/SafeImage';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Check, AlertCircle, UserX } from 'lucide-react';
 
@@ -86,15 +87,40 @@ export default function Dashboard() {
     setPendingSelection([]);
     setPendingSubstitutes([]);
 
-    setTimeout(async () => {
-      try {
-        const batch = await revealNextBatch(selectCount, subCount);
-        if (!batch) {
-          showToast('No present students found. Mark students as present first.', 'error');
-          setRevealing(false);
-          return;
-        }
+    const startTime = Date.now();
 
+    try {
+      // 1. Fetch selection immediately
+      const batch = await revealNextBatch(selectCount, subCount);
+      if (!batch) {
+        showToast('No present students found. Mark students as present first.', 'error');
+        setRevealing(false);
+        return;
+      }
+
+      // 2. Preload primary and substitute images in parallel
+      const imageUrls = [
+        ...batch.primaries.map(s => s.image_file).filter(Boolean),
+        ...batch.substitutes.map(s => s.image_file).filter(Boolean)
+      ] as string[];
+
+      await Promise.all(
+        imageUrls.map(url => {
+          return new Promise<void>((resolve) => {
+            const img = new Image();
+            img.src = url;
+            img.onload = () => resolve();
+            img.onerror = () => resolve();
+          });
+        })
+      );
+
+      // 3. Keep spinner active for at least 1.5s for visual suspense
+      const elapsed = Date.now() - startTime;
+      const minDuration = 1500; 
+      const remainingTime = Math.max(0, minDuration - elapsed);
+
+      setTimeout(async () => {
         const primariesGot = batch.primaries.length;
         const subsGot = batch.substitutes.length;
 
@@ -115,13 +141,14 @@ export default function Dashboard() {
         }
 
         await loadData();
-      } catch (e) {
-        console.error(e);
-        showToast('Failed to pick students. Please try again.', 'error');
-      } finally {
         setRevealing(false);
-      }
-    }, 1800);
+      }, remainingTime);
+
+    } catch (e) {
+      console.error(e);
+      showToast('Failed to pick students. Please try again.', 'error');
+      setRevealing(false);
+    }
   };
 
   const handleMarkAbsent = async (student: Student) => {
@@ -329,14 +356,11 @@ export default function Dashboard() {
 
                               <div className="w-48 h-48 bg-white overflow-hidden flex items-center justify-center mb-6 shadow-2xl rounded-sm">
                                 {student.image_file ? (
-                                  <img
+                                  <SafeImage
                                     src={student.image_file}
+                                    fallbackSrc={`https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(student.name)}`}
                                     alt={student.name}
                                     className="w-full h-full object-cover"
-                                    onError={(e) => {
-                                      (e.target as HTMLImageElement).src =
-                                        `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(student.name)}`;
-                                    }}
                                   />
                                 ) : (
                                   <img
