@@ -11,7 +11,7 @@ export const getAppState = async (): Promise<AppState> => {
   if (error) {
     // If no row exists, create one (fallback just in case)
     if (error.code === 'PGRST116') {
-      const defaultState = { current_cycle: 1, current_index: 0, queue: [] };
+      const defaultState = { current_cycle: 1, queue: [] };
       const { data: insertData, error: insertError } = await supabase
         .from('app_state')
         .insert(defaultState)
@@ -38,7 +38,6 @@ export const saveAppState = async (state: Partial<AppState>) => {
 export const resetStateAndCycle = async () => {
   await saveAppState({
     current_cycle: 1,
-    current_index: 0,
     queue: []
   });
 };

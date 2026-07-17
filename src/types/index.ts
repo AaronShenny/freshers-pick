@@ -2,6 +2,7 @@ export interface Student {
   id: string;
   course: string;
   name: string;
+  gender?: 'male' | 'female';
   image_file?: string;
   present: boolean;
   created_at: string;
@@ -19,7 +20,6 @@ export interface HistoryRecord {
 export interface AppState {
   id: string;
   current_cycle: number;
-  current_index: number;
   queue: string[]; // array of student ids
   updated_at: string;
 }

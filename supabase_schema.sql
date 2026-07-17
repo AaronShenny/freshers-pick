@@ -6,6 +6,7 @@ create table if not exists public.students (
     id uuid primary key default uuid_generate_v4(),
     course text not null,
     name text not null,
+    gender text,
     image_file text,
     present boolean default true,
     created_at timestamp with time zone default timezone('utc'::text, now()) not null

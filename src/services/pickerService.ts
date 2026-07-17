@@ -13,7 +13,10 @@ function shuffleArray<T>(array: T[]): T[] {
   return newArr;
 }
 
-export const revealNextBatch = async (primaryCount: number, subCount: number): Promise<{ primaries: Student[], substitutes: Student[] } | null> => {
+export const revealNextBatch = async (
+  criteria: { count: number, gender: 'male' | 'female' | 'mixed' }, 
+  subCount: number
+): Promise<{ primaries: Student[], substitutes: Student[] } | null> => {
   let state = await getAppState();
   let students = await fetchActiveStudents();
 
@@ -21,47 +24,64 @@ export const revealNextBatch = async (primaryCount: number, subCount: number): P
     return null; // No present students
   }
 
-  const totalNeeded = Math.min(primaryCount + subCount, students.length);
   const picked: Student[] = [];
+  const totalNeeded = Math.min(criteria.count + subCount, students.length);
 
-  // Helper loop to fill 'picked' array up to totalNeeded
   while (picked.length < totalNeeded) {
     // Need a new queue?
-    if (!state.queue || state.queue.length === 0 || state.current_index >= state.queue.length) {
-      // Generate new queue
+    if (!state.queue || state.queue.length === 0) {
       const studentIds = students.map(s => s.id);
       const newQueue = shuffleArray(studentIds);
+      const newCycle = state.queue && state.queue.length === 0 ? state.current_cycle + 1 : state.current_cycle;
       
-      const newCycle = state.queue && state.queue.length > 0 ? state.current_cycle + 1 : state.current_cycle;
-
       state = {
         ...state,
         queue: newQueue,
-        current_index: 0,
         current_cycle: newCycle
       };
-      await saveAppState({ queue: newQueue, current_index: 0, current_cycle: newCycle });
+      await saveAppState({ queue: newQueue, current_cycle: newCycle });
     }
 
-    // Try to pop next valid student
-    while (state.current_index < state.queue.length && picked.length < totalNeeded) {
-      const nextStudentId = state.queue[state.current_index];
-      const student = students.find(s => s.id === nextStudentId);
-      
-      state.current_index++;
+    // Try to extract from current queue
+    let i = 0;
+    let initialQueueSize = state.queue.length;
+    let initialPickedSize = picked.length;
 
-      if (student && !picked.find(p => p.id === student.id)) {
-        picked.push(student);
+    while (i < state.queue.length && picked.length < totalNeeded) {
+      const nextId = state.queue[i];
+      const student = students.find(s => s.id === nextId);
+
+      if (student) {
+        const matchesGender = criteria.gender === 'mixed' || student.gender === criteria.gender;
+        if (matchesGender && !picked.find(p => p.id === student.id)) {
+          picked.push(student);
+          // Remove from queue
+          state.queue.splice(i, 1);
+          continue; // Don't increment i because array shifted left
+        }
+      }
+      i++;
+    }
+
+    // If we didn't pick anyone in a full pass
+    if (picked.length === initialPickedSize && state.queue.length === initialQueueSize) {
+      const totalAvailableOfGender = students.filter(s => criteria.gender === 'mixed' || s.gender === criteria.gender).length;
+      if (picked.length >= totalAvailableOfGender) {
+        // Impossible to fulfill request
+        break;
+      } else {
+        // Force a cycle refresh
+        state.queue = [];
       }
     }
-
-    // Save the advanced index
-    await saveAppState({ current_index: state.current_index });
   }
 
+  // Save the modified queue
+  await saveAppState({ queue: state.queue });
+
   return {
-    primaries: picked.slice(0, primaryCount),
-    substitutes: picked.slice(primaryCount, totalNeeded)
+    primaries: picked.slice(0, criteria.count),
+    substitutes: picked.slice(criteria.count, totalNeeded)
   };
 };
 
@@ -84,15 +104,10 @@ export const confirmSelection = async (selectedStudents: Student[], unusedSubsti
     if (historyError) throw historyError;
   }
 
-  // 2. Return unused substitutes to the queue
+  // 2. Return unused substitutes to the FRONT of the queue
   if (unusedSubstitutes.length > 0 && state.queue) {
-    // Put them back exactly where current_index is, so they are next.
     const unusedIds = unusedSubstitutes.map(s => s.id);
-    const newQueue = [
-      ...state.queue.slice(0, state.current_index),
-      ...unusedIds,
-      ...state.queue.slice(state.current_index)
-    ];
+    const newQueue = [...unusedIds, ...state.queue];
     await saveAppState({ queue: newQueue });
   }
 };

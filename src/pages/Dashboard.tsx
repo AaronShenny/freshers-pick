@@ -54,6 +54,7 @@ export default function Dashboard() {
 
   const [selectCount, setSelectCount] = useState(1);
   const [subCount, setSubCount] = useState(0);
+  const [genderFilter, setGenderFilter] = useState<'male' | 'female' | 'mixed'>('mixed');
 
   const [pendingSelection, setPendingSelection] = useState<Student[]>([]);
   const [pendingSubstitutes, setPendingSubstitutes] = useState<Student[]>([]);
@@ -91,7 +92,7 @@ export default function Dashboard() {
 
     try {
       // 1. Fetch selection immediately
-      const batch = await revealNextBatch(selectCount, subCount);
+      const batch = await revealNextBatch({ count: selectCount, gender: genderFilter }, subCount);
       if (!batch) {
         showToast('No present students found. Mark students as present first.', 'error');
         setRevealing(false);
@@ -259,6 +260,32 @@ export default function Dashboard() {
                     className="bg-[#111] border border-[#1e1e1e] text-white rounded-xl px-4 py-2.5 text-sm outline-none focus:border-[#444] focus:bg-[#141414] transition-colors"
                   />
                 </div>
+              </div>
+              {/* Gender Filter — pill segment control */}
+              <div className="flex gap-2 px-1 pb-1">
+                {(['male', 'female', 'mixed'] as const).map(g => {
+                  const active = genderFilter === g;
+                  const icons: Record<string, string> = { male: '♂', female: '♀', mixed: '⚥' };
+                  const activeColors: Record<string, string> = {
+                    male:   'bg-blue-600/20 border-blue-500/60 text-blue-300',
+                    female: 'bg-pink-600/20 border-pink-500/60 text-pink-300',
+                    mixed:  'bg-purple-600/20 border-purple-500/60 text-purple-300',
+                  };
+                  return (
+                    <button
+                      key={g}
+                      onClick={() => setGenderFilter(g)}
+                      className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl border text-sm font-medium transition-all duration-200 select-none
+                        ${active
+                          ? activeColors[g]
+                          : 'bg-[#111] border-[#2a2a2a] text-[#888] hover:border-[#444] hover:text-[#bbb]'
+                        }`}
+                    >
+                      <span className="text-base leading-none">{icons[g]}</span>
+                      <span className="capitalize">{g}</span>
+                    </button>
+                  );
+                })}
               </div>
               <button
                 onClick={handleReveal}
