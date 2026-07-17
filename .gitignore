@@ -22,3 +22,10 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Data & one-off scripts
+students_rows.json
+students_rows.csv
+students_with_gender.csv
+update_genders.sql
+generate_sql.cjs
