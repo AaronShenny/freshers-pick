@@ -13,6 +13,22 @@ function shuffleArray<T>(array: T[]): T[] {
   return newArr;
 }
 
+/**
+ * Returns true if calling revealNextBatch would trigger a new cycle
+ * (i.e. the queue is exhausted for the given gender filter).
+ */
+export const checkWillCycle = async (gender: 'male' | 'female' | 'mixed'): Promise<boolean> => {
+  const state = await getAppState();
+  if (!state.queue || state.queue.length === 0) return true;
+
+  const students = await fetchActiveStudents();
+  const available = state.queue.filter(id => {
+    const s = students.find(st => st.id === id);
+    return s && (gender === 'mixed' || s.gender === gender);
+  });
+  return available.length === 0;
+};
+
 export const revealNextBatch = async (
   criteria: { count: number, gender: 'male' | 'female' | 'mixed' }, 
   subCount: number

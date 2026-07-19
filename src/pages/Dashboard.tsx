@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { fetchHistory } from '../services/historyService';
-import { revealNextBatch, confirmSelection } from '../services/pickerService';
+import { revealNextBatch, confirmSelection, checkWillCycle } from '../services/pickerService';
 import { getAppState } from '../services/stateService';
 import { toggleStudentPresence } from '../services/studentService';
 import type { Student, HistoryRecord } from '../types';
@@ -60,6 +60,8 @@ export default function Dashboard() {
   const [pendingSubstitutes, setPendingSubstitutes] = useState<Student[]>([]);
 
   const [toast, setToast] = useState<ToastState | null>(null);
+  const [showCycleWarning, setShowCycleWarning] = useState(false);
+  const [pendingReveal, setPendingReveal] = useState<(() => void) | null>(null);
 
   const showToast = useCallback((message: string, kind: ToastKind = 'info') => {
     const id = ++_toastId;
@@ -82,8 +84,9 @@ export default function Dashboard() {
 
   useEffect(() => { loadData(); }, []);
 
-  const handleReveal = async () => {
-    if (revealing) return;
+  const doReveal = async () => {
+    setShowCycleWarning(false);
+    setPendingReveal(null);
     setRevealing(true);
     setPendingSelection([]);
     setPendingSubstitutes([]);
@@ -208,6 +211,17 @@ export default function Dashboard() {
 
   const hasPending = pendingSelection.length > 0 || pendingSubstitutes.length > 0;
 
+  const handleReveal = async () => {
+    if (revealing) return;
+    // Check if a cycle rollover is about to happen
+    const willCycle = await checkWillCycle(genderFilter);
+    if (willCycle) {
+      setShowCycleWarning(true);
+      return;
+    }
+    doReveal();
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
@@ -218,6 +232,60 @@ export default function Dashboard() {
 
   return (
     <>
+      {/* === Cycle Warning Modal === */}
+      <AnimatePresence>
+        {showCycleWarning && (
+          <motion.div
+            key="cycle-modal-backdrop"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[200] flex items-center justify-center"
+            style={{ background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(6px)' }}
+          >
+            <motion.div
+              key="cycle-modal"
+              initial={{ opacity: 0, scale: 0.92, y: 16 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.92, y: 16 }}
+              transition={{ type: 'spring', stiffness: 300, damping: 28 }}
+              className="relative w-[380px] rounded-2xl border border-[#2a2a2a] p-7 flex flex-col gap-5"
+              style={{ background: '#111', boxShadow: '0 24px 80px rgba(0,0,0,0.6)' }}
+            >
+              {/* Icon */}
+              <div className="w-12 h-12 rounded-2xl flex items-center justify-center" style={{ background: 'rgba(251,191,36,0.12)', border: '1px solid rgba(251,191,36,0.25)' }}>
+                <AlertCircle className="text-amber-400" size={22} />
+              </div>
+
+              {/* Text */}
+              <div>
+                <h2 className="text-white font-semibold text-lg mb-1.5">New cycle starting</h2>
+                <p className="text-[#666] text-sm leading-relaxed">
+                  Everyone in the current queue has been picked. Starting <span className="text-amber-400 font-medium">Cycle {cycle + 1}</span> will reshuffle the list — previously picked students can be called again.
+                </p>
+              </div>
+
+              {/* Actions */}
+              <div className="flex gap-3 pt-1">
+                <button
+                  onClick={() => setShowCycleWarning(false)}
+                  className="flex-1 py-3 rounded-xl border border-[#2a2a2a] text-sm text-[#888] font-medium hover:border-[#444] hover:text-white transition-all"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={doReveal}
+                  className="flex-1 py-3 rounded-xl text-sm font-semibold transition-all"
+                  style={{ background: 'rgba(251,191,36,0.15)', border: '1px solid rgba(251,191,36,0.35)', color: '#fbbf24' }}
+                >
+                  Start Cycle {cycle + 1}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <div className="flex flex-col gap-8 animate-fade-up h-full">
         {/* Page header */}
         <div>
