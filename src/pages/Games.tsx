@@ -48,10 +48,27 @@ function PlayModal({ game, onClose }: { game: Game; onClose: () => void }) {
   const substitutes = gameStudents.filter(gs => gs.role === 'substitute');
 
   useEffect(() => {
-    fetchGameStudents(game.id).then(gs => {
+    const load = async () => {
+      const gs = await fetchGameStudents(game.id);
       setGameStudents(gs);
-      setLoading(false);
-    });
+
+      // Preload all images BEFORE starting the animation
+      const urls = gs
+        .map(g => g.student?.image_file || getAvatarUrl(g.student?.id ?? '', g.student?.gender))
+        .filter(Boolean) as string[];
+
+      await Promise.all(
+        urls.map(url => new Promise<void>(resolve => {
+          const img = new Image();
+          img.src = url;
+          img.onload = () => resolve();
+          img.onerror = () => resolve(); // don't block on error
+        }))
+      );
+
+      setLoading(false); // only now start the shuffle
+    };
+    load();
   }, [game.id]);
 
   // Fake shuffle animation
@@ -101,7 +118,10 @@ function PlayModal({ game, onClose }: { game: Game; onClose: () => void }) {
       <h2 className="font-display text-4xl text-white tracking-tight mb-10">{game.name}</h2>
 
       {loading ? (
-        <div className="w-8 h-8 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-8 h-8 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+          <p className="text-[#444] text-xs animate-pulse">Preparing…</p>
+        </div>
       ) : phase === 'shuffling' ? (
         <motion.div
           key="shuffle"
