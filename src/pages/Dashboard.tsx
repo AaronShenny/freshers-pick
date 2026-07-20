@@ -5,7 +5,7 @@ import { getAppState } from '../services/stateService';
 import { toggleStudentPresence } from '../services/studentService';
 import type { Student, HistoryRecord } from '../types';
 import FlickerSpinner from '../components/FlickerSpinner';
-import { SafeImage } from '../components/SafeImage';
+import { SafeImage, getAvatarUrl } from '../components/SafeImage';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Check, AlertCircle, UserX } from 'lucide-react';
 
@@ -449,21 +449,13 @@ export default function Dashboard() {
                                 <X size={36} strokeWidth={1.5} />
                               </button>
 
-                              <div className="w-48 h-48 bg-white overflow-hidden flex items-center justify-center mb-6 shadow-2xl rounded-sm">
-                                {student.image_file ? (
-                                  <SafeImage
-                                    src={student.image_file}
-                                    fallbackSrc={`https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(student.name)}`}
-                                    alt={student.name}
-                                    className="w-full h-full object-cover"
-                                  />
-                                ) : (
-                                  <img
-                                    src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(student.name)}`}
-                                    alt={student.name}
-                                    className="w-full h-full object-cover p-3 bg-[#e6f0fa]"
-                                  />
-                                )}
+                              <div className="w-48 h-48 overflow-hidden mb-6 shadow-2xl rounded-sm">
+                                <SafeImage
+                                  src={student.image_file || getAvatarUrl(student.id, student.gender)}
+                                  fallbackSrc={getAvatarUrl(student.id, student.gender)}
+                                  alt={student.name}
+                                  className="w-full h-full"
+                                />
                               </div>
 
                               <div className="text-center w-full px-1">

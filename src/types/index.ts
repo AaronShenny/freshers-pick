@@ -23,3 +23,21 @@ export interface AppState {
   queue: string[]; // array of student ids
   updated_at: string;
 }
+
+export interface Game {
+  id: string;
+  name: string;
+  description?: string;
+  created_at: string;
+  student_count?: number; // populated via join/count
+}
+
+export interface GameStudent {
+  id: string;
+  game_id: string;
+  student_id: string;
+  role: 'primary' | 'substitute';
+  position: number;
+  created_at: string;
+  student?: Student; // populated via join
+}

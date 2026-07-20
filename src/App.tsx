@@ -5,6 +5,7 @@ import Dashboard from './pages/Dashboard';
 import Students from './pages/Students';
 import History from './pages/History';
 import Settings from './pages/Settings';
+import Games from './pages/Games';
 import Login from './pages/Login';
 import { useEffect, useState } from 'react';
 import { supabase } from './services/supabase';
@@ -53,6 +54,7 @@ function App() {
             <Route path="/" element={<Dashboard />} />
             <Route path="/students" element={<Students />} />
             <Route path="/history" element={<History />} />
+            <Route path="/games" element={<Games />} />
             <Route path="/settings" element={<Settings />} />
           </Route>
         ) : (

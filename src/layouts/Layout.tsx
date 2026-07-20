@@ -1,5 +1,5 @@
 import { Outlet, Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Users, History as HistoryIcon, Settings, LogOut } from 'lucide-react';
+import { LayoutDashboard, Users, History as HistoryIcon, Settings, LogOut, Gamepad2 } from 'lucide-react';
 import { supabase } from '../services/supabase';
 
 export default function Layout() {
@@ -11,6 +11,7 @@ export default function Layout() {
 
   const navItems = [
     { name: 'Pick', path: '/', icon: LayoutDashboard },
+    { name: 'Games', path: '/games', icon: Gamepad2 },
     { name: 'Students', path: '/students', icon: Users },
     { name: 'History', path: '/history', icon: HistoryIcon },
     { name: 'Settings', path: '/settings', icon: Settings },
@@ -29,7 +30,9 @@ export default function Layout() {
         <nav className="flex-1 flex flex-col gap-0.5">
           {navItems.map((item) => {
             const Icon = item.icon;
-            const active = location.pathname === item.path;
+            const active = item.path === '/'
+              ? location.pathname === '/'
+              : location.pathname.startsWith(item.path);
             return (
               <Link
                 key={item.path}
