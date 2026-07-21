@@ -3,6 +3,7 @@ export interface Student {
   course: string;
   name: string;
   gender?: 'male' | 'female';
+  email?: string;
   image_file?: string;
   present: boolean;
   created_at: string;

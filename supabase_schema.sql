@@ -13,10 +13,14 @@ create table if not exists public.students (
     course text not null,
     name text not null,
     gender text,
+    email text,
     image_file text,
     present boolean default true,
     created_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
+
+-- Ensure email column exists if table was already created
+ALTER TABLE public.students ADD COLUMN IF NOT EXISTS email text;
 
 -- ============================================================
 -- 2. Table: history
