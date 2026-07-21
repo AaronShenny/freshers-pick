@@ -39,7 +39,7 @@ create table if not exists public.history (
 -- ============================================================
 create table if not exists public.app_state (
     id uuid primary key default uuid_generate_v4(),
-    current_cycle integer default 1,
+    current_cycle integer default 0,
     current_index integer default 0,
     queue jsonb default '[]'::jsonb,
     updated_at timestamp with time zone default timezone('utc'::text, now()) not null
@@ -47,8 +47,12 @@ create table if not exists public.app_state (
 
 -- Insert a single row for app_state if it doesn't exist
 insert into public.app_state (id, current_cycle, current_index, queue)
-select uuid_generate_v4(), 1, 0, '[]'::jsonb
+select uuid_generate_v4(), 0, 0, '[]'::jsonb
 where not exists (select 1 from public.app_state);
+
+-- If app_state already exists with current_cycle=1 and empty queue, it may be a stale
+-- reset from the old schema. Reset it to 0 to represent "fresh start".
+UPDATE public.app_state SET current_cycle = 0 WHERE current_cycle = 1 AND queue = '[]'::jsonb;
 
 -- ============================================================
 -- 4. Table: games
