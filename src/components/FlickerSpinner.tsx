@@ -14,7 +14,6 @@ export default function FlickerSpinner({ size = 28 }: { size?: number }) {
       <style>{`
         circle { fill: var(--off); }
         circle.on { fill: var(--on); }
-        @media (prefers-reduced-motion: reduce) { circle { animation: none !important; } }
         @keyframes f0000110000011 { 0% { opacity: 0; } 30.76% { opacity: 0; } 30.77% { opacity: 1; } 46.14% { opacity: 1; } 46.15% { opacity: 0; } 84.61% { opacity: 0; } 84.62% { opacity: 1; } 100% { opacity: 1; } }
         @keyframes f0001100000110 { 0% { opacity: 0; } 23.07% { opacity: 0; } 23.08% { opacity: 1; } 38.45% { opacity: 1; } 38.46% { opacity: 0; } 76.91% { opacity: 0; } 76.92% { opacity: 1; } 92.30% { opacity: 1; } 92.31% { opacity: 0; } 100% { opacity: 0; } }
         @keyframes f0011000001100 { 0% { opacity: 0; } 15.37% { opacity: 0; } 15.38% { opacity: 1; } 30.76% { opacity: 1; } 30.77% { opacity: 0; } 69.22% { opacity: 0; } 69.23% { opacity: 1; } 84.61% { opacity: 1; } 84.62% { opacity: 0; } 100% { opacity: 0; } }

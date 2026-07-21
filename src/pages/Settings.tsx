@@ -11,6 +11,10 @@ export default function Settings() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
+  const disableCsvUpload = import.meta.env.VITE_DISABLE_CSV_UPLOAD === '1';
+  const disableCycleUpdate = import.meta.env.VITE_DISABLE_CYCLE_UPDATE === '1';
+  const disableResetHistory = import.meta.env.VITE_DISABLE_RESET_HISTORY === '1';
+
   const notify = (msg: string, isError = false) => {
     if (isError) { setError(msg); setSuccess(null); }
     else { setSuccess(msg); setError(null); }
@@ -75,16 +79,16 @@ export default function Settings() {
             type="file"
             accept=".csv"
             onChange={handleFileUpload}
-            disabled={loading}
+            disabled={loading || disableCsvUpload}
             className="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-not-allowed"
           />
-          <div className={`border border-dashed border-[#222] rounded-xl p-8 flex flex-col items-center justify-center gap-3 transition-colors ${loading ? 'opacity-50' : 'hover:border-[#333] hover:bg-[#131313]'}`}>
+          <div className={`border border-dashed border-[#222] rounded-xl p-8 flex flex-col items-center justify-center gap-3 transition-colors ${loading || disableCsvUpload ? 'opacity-50' : 'hover:border-[#333] hover:bg-[#131313]'}`}>
             {loading ? (
               <FlickerSpinner size={28} />
             ) : (
               <>
                 <Upload size={20} className="text-[#444]" />
-                <p className="text-xs text-[#555]">Click to upload CSV</p>
+                <p className="text-xs text-[#555]">{disableCsvUpload ? 'CSV Upload Disabled' : 'Click to upload CSV'}</p>
               </>
             )}
           </div>
@@ -105,11 +109,11 @@ export default function Settings() {
           </div>
           <button
             onClick={handleResetCycle}
-            disabled={loading}
+            disabled={loading || disableCycleUpdate}
             className="flex items-center gap-2 text-xs text-[#888] hover:text-white bg-[#1a1a1a] hover:bg-[#222] border border-[#222] hover:border-[#333] px-3 py-2 rounded-lg transition-all duration-150 disabled:opacity-40"
           >
             <RefreshCcw size={13} />
-            Reset
+            {disableCycleUpdate ? 'Disabled' : 'Reset'}
           </button>
         </div>
 
@@ -120,11 +124,11 @@ export default function Settings() {
           </div>
           <button
             onClick={handleClearHistory}
-            disabled={loading}
+            disabled={loading || disableResetHistory}
             className="flex items-center gap-2 text-xs text-red-400 hover:text-red-300 bg-red-950/20 hover:bg-red-950/30 border border-red-900/30 px-3 py-2 rounded-lg transition-all duration-150 disabled:opacity-40"
           >
             <Trash2 size={13} />
-            Clear
+            {disableResetHistory ? 'Disabled' : 'Clear'}
           </button>
         </div>
       </div>
