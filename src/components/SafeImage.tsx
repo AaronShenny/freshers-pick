@@ -1,8 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 
 // ─── Avatar helper ────────────────────────────────────────────────────────────
-// Picks a deterministic avatar from /public/avatars/male-{1-30}.png or female-{1-30}.png
-// based on the student's id so the same person always gets the same avatar.
 export function getAvatarUrl(studentId: string, gender?: 'male' | 'female'): string {
   const base = import.meta.env.BASE_URL ?? '/';
   const g = gender ?? 'male';
@@ -15,7 +13,7 @@ export function getAvatarUrl(studentId: string, gender?: 'male' | 'female'): str
 interface SafeImageProps extends React.ImgHTMLAttributes<HTMLImageElement> {
   src: string;
   fallbackSrc?: string;
-  shimmer?: boolean; // show shimmer placeholder while loading (default: true)
+  shimmer?: boolean;
 }
 
 export const SafeImage: React.FC<SafeImageProps> = ({
@@ -28,14 +26,13 @@ export const SafeImage: React.FC<SafeImageProps> = ({
   ...props
 }) => {
   const [imgSrc, setImgSrc] = useState<string>(src);
-  const [converting, setConverting] = useState<boolean>(false);
-  const [loaded, setLoaded] = useState<boolean>(false);
+  const [converting, setConverting] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  const imgRef = useRef<HTMLImageElement>(null);
 
   useEffect(() => {
-    setLoaded(false);
     if (!src) return;
 
-    // Check if URL points to a HEIC/HEIF image
     const urlWithoutQuery = src.split('?')[0].split('#')[0];
     const isHeic = /\.(heic|heif)$/i.test(urlWithoutQuery);
 
@@ -52,25 +49,14 @@ export const SafeImage: React.FC<SafeImageProps> = ({
       try {
         const response = await fetch(src);
         const blob = await response.blob();
-
-        // Dynamically import heic2any to keep initial bundle size small
         const heic2any = (await import('heic2any')).default;
-        
-        const conversionResult = await heic2any({
-          blob,
-          toType: 'image/jpeg',
-          quality: 0.8
-        });
-
-        // heic2any can return an array of blobs if it's animated/multiple HEIC
-        const resultBlob = Array.isArray(conversionResult) ? conversionResult[0] : conversionResult;
-        
+        const result = await heic2any({ blob, toType: 'image/jpeg', quality: 0.8 });
+        const resultBlob = Array.isArray(result) ? result[0] : result;
         if (isMounted) {
           objectUrl = URL.createObjectURL(resultBlob);
           setImgSrc(objectUrl);
         }
-      } catch (err) {
-        console.error('Failed to convert HEIC image:', err);
+      } catch {
         if (isMounted) setImgSrc(src);
       } finally {
         if (isMounted) setConverting(false);
@@ -78,12 +64,24 @@ export const SafeImage: React.FC<SafeImageProps> = ({
     };
 
     convertHeic();
-
     return () => {
       isMounted = false;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
   }, [src]);
+
+  // ── Key fix: if the image is already cached the browser won't fire onLoad.
+  // After imgSrc is set, check img.complete immediately (next tick).
+  useEffect(() => {
+    setLoaded(false);
+    // Use setTimeout(0) to let the browser assign the new src first
+    const timer = setTimeout(() => {
+      if (imgRef.current?.complete && imgRef.current.naturalWidth > 0) {
+        setLoaded(true);
+      }
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [imgSrc]);
 
   if (converting) {
     return (
@@ -95,10 +93,9 @@ export const SafeImage: React.FC<SafeImageProps> = ({
 
   return (
     <div className={`relative overflow-hidden ${className}`} style={{ background: '#1a1a1a' }}>
-      {/* Shimmer skeleton shown while image loads */}
       {shimmer && !loaded && (
         <div
-          className="absolute inset-0 z-10"
+          className="absolute inset-0 z-10 pointer-events-none"
           style={{
             background: 'linear-gradient(90deg, #1a1a1a 25%, #252525 50%, #1a1a1a 75%)',
             backgroundSize: '200% 100%',
@@ -107,19 +104,16 @@ export const SafeImage: React.FC<SafeImageProps> = ({
         />
       )}
       <img
+        ref={imgRef}
         src={imgSrc}
         alt={alt}
         decoding="async"
         className="w-full h-full object-cover"
-        style={{
-          opacity: loaded ? 1 : 0,
-          transition: 'opacity 0.25s ease',
-        }}
+        style={{ opacity: loaded ? 1 : 0, transition: 'opacity 0.2s ease' }}
         onLoad={() => setLoaded(true)}
-        onError={(e) => {
-          setLoaded(true); // hide shimmer even on error
-          if (fallbackSrc) setImgSrc(fallbackSrc);
-          if (onError) onError(e);
+        onError={() => {
+          setLoaded(true); // hide shimmer on error too
+          if (fallbackSrc && imgSrc !== fallbackSrc) setImgSrc(fallbackSrc);
         }}
         {...props}
       />
