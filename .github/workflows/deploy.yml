@@ -35,6 +35,9 @@ jobs:
         env:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          VITE_DISABLE_CSV_UPLOAD: ${{ secrets.VITE_DISABLE_CSV_UPLOAD }}
+          VITE_DISABLE_CYCLE_UPDATE: ${{ secrets.VITE_DISABLE_CYCLE_UPDATE }}
+          VITE_DISABLE_RESET_HISTORY: ${{ secrets.VITE_DISABLE_RESET_HISTORY }}
           # Tells Vite to set base = /picker/ so all assets are prefixed correctly
           VITE_BASE_URL: "/freshers-pick/"
 
