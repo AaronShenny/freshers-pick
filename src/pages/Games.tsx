@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Plus, Play, Pencil, Trash2, X, Check, Users, Gamepad2, ChevronRight } from 'lucide-react';
 import { fetchGames, createGame, updateGame, deleteGame, saveStudentsToGame, fetchGameStudents } from '../services/gameService';
+import { toggleStudentPresence } from '../services/studentService';
 import { revealNextBatch } from '../services/pickerService';
 import { getAvatarUrl } from '../components/SafeImage';
 import type { Game, GameStudent } from '../types';
@@ -37,12 +38,13 @@ function Toast({ toast }: { toast: ToastState | null }) {
 }
 
 // ─── Play Modal ───────────────────────────────────────────────────────────────
-function PlayModal({ game, onClose }: { game: Game; onClose: () => void }) {
+function PlayModal({ game, onClose, showToast }: { game: Game; onClose: () => void; showToast: (msg: string, kind: ToastKind) => void }) {
   const [gameStudents, setGameStudents] = useState<GameStudent[]>([]);
   const [loading, setLoading] = useState(true);
   const [phase, setPhase] = useState<'shuffling' | 'reveal'>('shuffling');
   const [revealedCount, setRevealedCount] = useState(0);
   const [shuffleText, setShuffleText] = useState('');
+  const [markingAbsent, setMarkingAbsent] = useState<string | null>(null);
 
   const primaries = gameStudents.filter(gs => gs.role === 'primary');
   const substitutes = gameStudents.filter(gs => gs.role === 'substitute');
@@ -96,6 +98,43 @@ function PlayModal({ game, onClose }: { game: Game; onClose: () => void }) {
 
     return () => clearInterval(interval);
   }, [loading, gameStudents]);
+
+  const handleMarkAbsent = async (gs: GameStudent) => {
+    if (!gs.student || markingAbsent) return;
+    setMarkingAbsent(gs.student.id);
+
+    try {
+      await toggleStudentPresence(gs.student.id, true);
+
+      const newGameStudents = [...gameStudents].filter(x => x.id !== gs.id);
+      const newPrimaries = newGameStudents.filter(x => x.role === 'primary');
+      const newSubstitutes = newGameStudents.filter(x => x.role === 'substitute');
+
+      if (newSubstitutes.length > 0) {
+        const promoted = newSubstitutes.shift();
+        if (promoted) {
+          promoted.role = 'primary';
+          newPrimaries.push(promoted);
+          showToast(`${gs.student.name} marked absent. ${promoted.student?.name} substituted in!`, 'info');
+        }
+      } else {
+        showToast(`${gs.student.name} marked absent. No substitutes remaining.`, 'info');
+      }
+
+      setGameStudents([...newPrimaries, ...newSubstitutes]);
+
+      await saveStudentsToGame(
+        game.id,
+        newPrimaries.map(x => x.student!),
+        newSubstitutes.map(x => x.student!)
+      );
+    } catch (e) {
+      console.error(e);
+      showToast(`Failed to mark ${gs.student.name} absent.`, 'error');
+    } finally {
+      setMarkingAbsent(null);
+    }
+  };
 
   return (
     <motion.div
@@ -156,7 +195,15 @@ function PlayModal({ game, onClose }: { game: Game; onClose: () => void }) {
                   transition={{ type: 'spring', stiffness: 280, damping: 24, delay: i * 0.05 }}
                   className="flex flex-col items-center gap-3"
                 >
-                  <div className="w-36 h-36 rounded-sm overflow-hidden shadow-2xl bg-white">
+                  <div className="relative group w-36 h-36 rounded-sm overflow-hidden shadow-2xl bg-white">
+                    <button
+                      onClick={() => handleMarkAbsent(gs)}
+                      disabled={markingAbsent !== null}
+                      className="absolute -top-3 -right-3 z-10 p-1.5 bg-[#111] text-[#888] rounded-full border border-[#333] hover:text-red-400 hover:border-red-500/50 hover:bg-red-950/30 transition-all opacity-0 group-hover:opacity-100 group-hover:top-2 group-hover:right-2 disabled:opacity-50"
+                      title="Mark absent and substitute"
+                    >
+                      <X size={14} />
+                    </button>
                     <img
                       src={student.image_file || getAvatarUrl(student.id, student.gender)}
                       alt={student.name}
@@ -459,9 +506,11 @@ export default function Games() {
             onClose={() => setEditingGame(null)}
           />
         )}
-        {playingGame && (
-          <PlayModal game={playingGame} onClose={() => setPlayingGame(null)} />
-        )}
+        <AnimatePresence>
+          {playingGame && (
+            <PlayModal game={playingGame} onClose={() => setPlayingGame(null)} showToast={showToast} />
+          )}
+        </AnimatePresence>
       </AnimatePresence>
 
       <div className="flex flex-col gap-8 animate-fade-up">
