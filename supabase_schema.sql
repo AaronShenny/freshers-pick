@@ -1,7 +1,13 @@
+-- ============================================================
+-- FULL SUPABASE SCHEMA 
+-- ============================================================
+
 -- Enable UUID extension
 create extension if not exists "uuid-ossp";
 
--- Table: students
+-- ============================================================
+-- 1. Table: students
+-- ============================================================
 create table if not exists public.students (
     id uuid primary key default uuid_generate_v4(),
     course text not null,
@@ -12,7 +18,9 @@ create table if not exists public.students (
     created_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
 
--- Table: history
+-- ============================================================
+-- 2. Table: history
+-- ============================================================
 create table if not exists public.history (
     id uuid primary key default uuid_generate_v4(),
     student_id uuid references public.students(id) on delete cascade,
@@ -22,7 +30,9 @@ create table if not exists public.history (
     student_name text not null
 );
 
--- Table: app_state
+-- ============================================================
+-- 3. Table: app_state
+-- ============================================================
 create table if not exists public.app_state (
     id uuid primary key default uuid_generate_v4(),
     current_cycle integer default 1,
@@ -36,10 +46,38 @@ insert into public.app_state (id, current_cycle, current_index, queue)
 select uuid_generate_v4(), 1, 0, '[]'::jsonb
 where not exists (select 1 from public.app_state);
 
--- Enable Row Level Security (RLS)
+-- ============================================================
+-- 4. Table: games
+-- ============================================================
+CREATE TABLE IF NOT EXISTS public.games (
+  id          uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  name        text NOT NULL,
+  description text,
+  created_at  timestamptz DEFAULT now()
+);
+
+-- ============================================================
+-- 5. Table: game_students (Join Table)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS public.game_students (
+  id         uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  game_id    uuid NOT NULL REFERENCES public.games(id) ON DELETE CASCADE,
+  student_id uuid NOT NULL REFERENCES public.students(id) ON DELETE CASCADE,
+  role       text NOT NULL DEFAULT 'primary', -- 'primary' | 'substitute'
+  position   integer NOT NULL DEFAULT 0,
+  created_at timestamptz DEFAULT now(),
+  UNIQUE(game_id, student_id)
+);
+
+
+-- ============================================================
+-- Row Level Security (RLS)
+-- ============================================================
 alter table public.students enable row level security;
 alter table public.history enable row level security;
 alter table public.app_state enable row level security;
+ALTER TABLE public.games ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.game_students ENABLE ROW LEVEL SECURITY;
 
 -- Policies for students
 create policy "Allow all actions for authenticated users on students"
@@ -61,3 +99,13 @@ create policy "Allow all actions for authenticated users on app_state"
     to authenticated
     using (true)
     with check (true);
+
+-- Policies for games
+CREATE POLICY "Authenticated full access on games"
+  ON public.games FOR ALL TO authenticated
+  USING (true) WITH CHECK (true);
+
+-- Policies for game_students
+CREATE POLICY "Authenticated full access on game_students"
+  ON public.game_students FOR ALL TO authenticated
+  USING (true) WITH CHECK (true);
