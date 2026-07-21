@@ -80,6 +80,7 @@ ALTER TABLE public.games ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.game_students ENABLE ROW LEVEL SECURITY;
 
 -- Policies for students
+DROP POLICY IF EXISTS "Allow all actions for authenticated users on students" ON public.students;
 create policy "Allow all actions for authenticated users on students"
     on public.students for all
     to authenticated
@@ -87,6 +88,7 @@ create policy "Allow all actions for authenticated users on students"
     with check (true);
 
 -- Policies for history
+DROP POLICY IF EXISTS "Allow all actions for authenticated users on history" ON public.history;
 create policy "Allow all actions for authenticated users on history"
     on public.history for all
     to authenticated
@@ -94,6 +96,7 @@ create policy "Allow all actions for authenticated users on history"
     with check (true);
 
 -- Policies for app_state
+DROP POLICY IF EXISTS "Allow all actions for authenticated users on app_state" ON public.app_state;
 create policy "Allow all actions for authenticated users on app_state"
     on public.app_state for all
     to authenticated
@@ -101,11 +104,13 @@ create policy "Allow all actions for authenticated users on app_state"
     with check (true);
 
 -- Policies for games
+DROP POLICY IF EXISTS "Authenticated full access on games" ON public.games;
 CREATE POLICY "Authenticated full access on games"
   ON public.games FOR ALL TO authenticated
   USING (true) WITH CHECK (true);
 
 -- Policies for game_students
+DROP POLICY IF EXISTS "Authenticated full access on game_students" ON public.game_students;
 CREATE POLICY "Authenticated full access on game_students"
   ON public.game_students FOR ALL TO authenticated
   USING (true) WITH CHECK (true);
