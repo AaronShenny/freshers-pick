@@ -58,6 +58,8 @@ export default function Dashboard() {
 
   const [pendingSelection, setPendingSelection] = useState<Student[]>([]);
   const [pendingSubstitutes, setPendingSubstitutes] = useState<Student[]>([]);
+  
+  const disableCycleUpdate = import.meta.env.VITE_DISABLE_CYCLE_UPDATE === '1';
 
   const [toast, setToast] = useState<ToastState | null>(null);
   const [showCycleWarning, setShowCycleWarning] = useState(false);
@@ -257,30 +259,49 @@ export default function Dashboard() {
                 <AlertCircle className="text-amber-400" size={22} />
               </div>
 
-              {/* Text */}
-              <div>
-                <h2 className="text-white font-semibold text-lg mb-1.5">New cycle starting</h2>
-                <p className="text-[#666] text-sm leading-relaxed">
-                  Everyone in the current queue has been picked. Starting <span className="text-amber-400 font-medium">Cycle {cycle + 1}</span> will reshuffle the list — previously picked students can be called again.
-                </p>
-              </div>
-
-              {/* Actions */}
-              <div className="flex gap-3 pt-1">
-                <button
-                  onClick={() => setShowCycleWarning(false)}
-                  className="flex-1 py-3 rounded-xl border border-[#2a2a2a] text-sm text-[#888] font-medium hover:border-[#444] hover:text-white transition-all"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={doReveal}
-                  className="flex-1 py-3 rounded-xl text-sm font-semibold transition-all"
-                  style={{ background: 'rgba(251,191,36,0.15)', border: '1px solid rgba(251,191,36,0.35)', color: '#fbbf24' }}
-                >
-                  Start Cycle {cycle + 1}
-                </button>
-              </div>
+              {/* Text & Actions */}
+              {disableCycleUpdate ? (
+                <>
+                  <div>
+                    <h2 className="text-white font-semibold text-lg mb-1.5">No students left</h2>
+                    <p className="text-[#666] text-sm leading-relaxed">
+                      Everyone in the current queue has been picked. Cycle resetting is disabled globally, so no more students can be picked from this queue.
+                    </p>
+                  </div>
+                  <div className="flex pt-1">
+                    <button
+                      onClick={() => setShowCycleWarning(false)}
+                      className="flex-1 py-3 rounded-xl border border-[#2a2a2a] text-sm text-white font-medium bg-[#222] hover:bg-[#333] transition-all"
+                    >
+                      Okay
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div>
+                    <h2 className="text-white font-semibold text-lg mb-1.5">New cycle starting</h2>
+                    <p className="text-[#666] text-sm leading-relaxed">
+                      Everyone in the current queue has been picked. Starting <span className="text-amber-400 font-medium">Cycle {cycle + 1}</span> will reshuffle the list — previously picked students can be called again.
+                    </p>
+                  </div>
+                  <div className="flex gap-3 pt-1">
+                    <button
+                      onClick={() => setShowCycleWarning(false)}
+                      className="flex-1 py-3 rounded-xl border border-[#2a2a2a] text-sm text-[#888] font-medium hover:border-[#444] hover:text-white transition-all"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={doReveal}
+                      className="flex-1 py-3 rounded-xl text-sm font-semibold transition-all"
+                      style={{ background: 'rgba(251,191,36,0.15)', border: '1px solid rgba(251,191,36,0.35)', color: '#fbbf24' }}
+                    >
+                      Start Cycle {cycle + 1}
+                    </button>
+                  </div>
+                </>
+              )}
             </motion.div>
           </motion.div>
         )}
