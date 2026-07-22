@@ -33,8 +33,8 @@ export default function Settings() {
     } catch (err: unknown) {
       notify(err instanceof Error ? err.message : 'Failed to parse CSV', true);
     } finally {
-      setLoading(false);
       e.target.value = '';
+      setLoading(false);
     }
   };
 

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { fetchHistory } from '../services/historyService';
 import { revealNextBatch, confirmSelection, checkWillCycle } from '../services/pickerService';
-import { getAppState } from '../services/stateService';
+import { getAppState, saveAppState } from '../services/stateService';
 import { toggleStudentPresence } from '../services/studentService';
 import type { Student, HistoryRecord } from '../types';
 import FlickerSpinner from '../components/FlickerSpinner';
@@ -46,7 +46,7 @@ function Toast({ toast }: { toast: ToastState | null }) {
 // ---------------------------------------------------------------------------
 export default function Dashboard() {
   const [history, setHistory] = useState<HistoryRecord[]>([]);
-  const [cycle, setCycle] = useState(1);
+  const [cycle, setCycle] = useState(0);
   const [loading, setLoading] = useState(true);
   const [revealing, setRevealing] = useState(false);
   const [confirming, setConfirming] = useState(false);
@@ -60,10 +60,10 @@ export default function Dashboard() {
   const [pendingSubstitutes, setPendingSubstitutes] = useState<Student[]>([]);
   
   const disableCycleUpdate = import.meta.env.VITE_DISABLE_CYCLE_UPDATE === '1';
+  const disableAutoCycleIncrement = import.meta.env.VITE_DISABLE_AUTO_CYCLE_INCREMENT === '1';
 
   const [toast, setToast] = useState<ToastState | null>(null);
   const [showCycleWarning, setShowCycleWarning] = useState(false);
-  const [pendingReveal, setPendingReveal] = useState<(() => void) | null>(null);
 
   const showToast = useCallback((message: string, kind: ToastKind = 'info') => {
     const id = ++_toastId;
@@ -88,7 +88,6 @@ export default function Dashboard() {
 
   const doReveal = async () => {
     setShowCycleWarning(false);
-    setPendingReveal(null);
     setRevealing(true);
     setPendingSelection([]);
     setPendingSubstitutes([]);
@@ -127,27 +126,37 @@ export default function Dashboard() {
       const remainingTime = Math.max(0, minDuration - elapsed);
 
       setTimeout(async () => {
-        const primariesGot = batch.primaries.length;
-        const subsGot = batch.substitutes.length;
+        try {
+          const primariesGot = batch.primaries.length;
+          const subsGot = batch.substitutes.length;
 
-        setPendingSelection(batch.primaries);
-        setPendingSubstitutes(batch.substitutes);
+          setPendingSelection(batch.primaries);
+          setPendingSubstitutes(batch.substitutes);
 
-        // Warn if fewer students than requested
-        if (primariesGot < selectCount) {
-          showToast(
-            `Only ${primariesGot} present student${primariesGot !== 1 ? 's' : ''} available (requested ${selectCount}).`,
-            'info'
-          );
-        } else if (subsGot < subCount) {
-          showToast(
-            `Only ${subsGot} substitute${subsGot !== 1 ? 's' : ''} available (requested ${subCount}).`,
-            'info'
-          );
+          // Warn about queue exhaustion first (takes priority)
+          if (batch.queueExhausted && (primariesGot < selectCount || subsGot < subCount)) {
+            const totalGot = primariesGot + subsGot;
+            const totalRequested = selectCount + subCount;
+            showToast(
+              `Only ${totalGot} student${totalGot !== 1 ? 's' : ''} left in queue (requested ${totalRequested}) — queue exhausted.`,
+              'info'
+            );
+          } else if (primariesGot < selectCount) {
+            showToast(
+              `Only ${primariesGot} present student${primariesGot !== 1 ? 's' : ''} available (requested ${selectCount}).`,
+              'info'
+            );
+          } else if (subsGot < subCount) {
+            showToast(
+              `Only ${subsGot} substitute${subsGot !== 1 ? 's' : ''} available (requested ${subCount}).`,
+              'info'
+            );
+          }
+
+          await loadData();
+        } finally {
+          setRevealing(false);
         }
-
-        await loadData();
-        setRevealing(false);
       }, remainingTime);
 
     } catch (e) {
@@ -163,25 +172,26 @@ export default function Dashboard() {
     try {
       await toggleStudentPresence(student.id, true);
 
-      // Remove from selection, pull next sub in
+      // Return absent student to the front of the queue
+      const state = await getAppState();
+      if (state.queue) {
+        await saveAppState({ queue: [student.id, ...state.queue] });
+      }
+
+      // Snapshot for atomic updates without stale closures
+      const nextSub = pendingSubstitutes.length > 0 ? pendingSubstitutes[0] : null;
+
+      setPendingSubstitutes(prevSubs => prevSubs.slice(1));
+      
       setPendingSelection(prev => {
         const newSel = prev.filter(s => s.id !== student.id);
-        
-        if (pendingSubstitutes.length > 0) {
-          const nextSub = pendingSubstitutes[0];
+        if (nextSub) {
           newSel.push(nextSub);
           showToast(`${student.name} marked absent — ${nextSub.name} substituted in.`, 'info');
         } else {
           showToast(`${student.name} marked absent. No more substitutes.`, 'info');
         }
         return newSel;
-      });
-
-      setPendingSubstitutes(prevSubs => {
-        if (prevSubs.length > 0) {
-           return prevSubs.slice(1);
-        }
-        return prevSubs;
       });
     } catch (e) {
       console.error(e);
@@ -215,11 +225,14 @@ export default function Dashboard() {
 
   const handleReveal = async () => {
     if (revealing) return;
-    // Check if a cycle rollover is about to happen
-    const willCycle = await checkWillCycle(genderFilter);
-    if (willCycle) {
-      setShowCycleWarning(true);
-      return;
+    // If auto-cycle is disabled, skip the cycle warning — revealNextBatch will
+    // simply stop at the queue boundary and return what's left with queueExhausted=true.
+    if (!disableAutoCycleIncrement) {
+      const willCycle = await checkWillCycle(genderFilter);
+      if (willCycle) {
+        setShowCycleWarning(true);
+        return;
+      }
     }
     doReveal();
   };
@@ -310,7 +323,9 @@ export default function Dashboard() {
       <div className="flex flex-col gap-8 animate-fade-up h-full">
         {/* Page header */}
         <div>
-          <p className="text-[#444] text-xs uppercase tracking-widest font-medium mb-1">Cycle {cycle}</p>
+          <p className="text-[#444] text-xs uppercase tracking-widest font-medium mb-1">
+            {cycle === 0 ? 'Starting...' : `Cycle ${cycle}`}
+          </p>
           <h1 className="font-display text-3xl text-white tracking-tight">Who's next?</h1>
         </div>
 

@@ -12,16 +12,19 @@ export const fetchGames = async (): Promise<Game[]> => {
 
   return (data ?? []).map((g: any) => ({
     ...g,
+    // NOTE: student_count includes ALL pre-picked students, not just present ones.
+    // Present-only count is not computed here to avoid extra joins on every list load.
     student_count: g.game_students?.[0]?.count ?? 0,
   }));
 };
 
-// ─── Fetch students for a specific game ─────────────────────────────────────
+// ─── Fetch students for a specific game (present only) ─────────────────────
 export const fetchGameStudents = async (gameId: string): Promise<GameStudent[]> => {
   const { data, error } = await supabase
     .from('game_students')
-    .select('*, student:students(*)')
+    .select('*, student:students!inner(*)')
     .eq('game_id', gameId)
+    .eq('student.present', true)
     .order('position', { ascending: true });
 
   if (error) throw error;
@@ -66,8 +69,9 @@ export const saveStudentsToGame = async (
   primaries: Student[],
   substitutes: Student[]
 ): Promise<void> => {
-  // Remove existing students for this game before re-saving
-  await supabase.from('game_students').delete().eq('game_id', gameId);
+  // FIX BUG 5: Handle delete error — if delete fails, don't insert (would create duplicates)
+  const { error: deleteError } = await supabase.from('game_students').delete().eq('game_id', gameId);
+  if (deleteError) throw deleteError;
 
   const rows = [
     ...primaries.map((s, i) => ({

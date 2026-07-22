@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Plus, Play, Pencil, Trash2, X, Check, Users, Gamepad2, ChevronRight } from 'lucide-react';
 import { fetchGames, createGame, updateGame, deleteGame, saveStudentsToGame, fetchGameStudents } from '../services/gameService';
@@ -49,6 +49,12 @@ function PlayModal({ game, onClose, showToast }: { game: Game; onClose: () => vo
   const primaries = gameStudents.filter(gs => gs.role === 'primary');
   const substitutes = gameStudents.filter(gs => gs.role === 'substitute');
 
+  const primariesCountRef = useRef(primaries.length);
+  useEffect(() => { primariesCountRef.current = primaries.length; }, [primaries.length]);
+
+  const phaseRef = useRef(phase);
+  useEffect(() => { phaseRef.current = phase; }, [phase]);
+
   useEffect(() => {
     const load = async () => {
       const gs = await fetchGameStudents(game.id);
@@ -75,7 +81,7 @@ function PlayModal({ game, onClose, showToast }: { game: Game; onClose: () => vo
 
   // Fake shuffle animation
   useEffect(() => {
-    if (loading) return;
+    if (loading || phaseRef.current !== 'shuffling') return;
 
     const names = gameStudents.map(gs => gs.student?.name ?? '???');
     let tick = 0;
@@ -91,7 +97,7 @@ function PlayModal({ game, onClose, showToast }: { game: Game; onClose: () => vo
         const revealer = setInterval(() => {
           count++;
           setRevealedCount(count);
-          if (count >= primaries.length) clearInterval(revealer);
+          if (count >= primariesCountRef.current) clearInterval(revealer);
         }, 400);
       }
     }, 80);
@@ -111,9 +117,9 @@ function PlayModal({ game, onClose, showToast }: { game: Game; onClose: () => vo
       const newSubstitutes = newGameStudents.filter(x => x.role === 'substitute');
 
       if (newSubstitutes.length > 0) {
-        const promoted = newSubstitutes.shift();
+        const promoted = { ...newSubstitutes[0], role: 'primary' as const };
+        newSubstitutes.splice(0, 1);
         if (promoted) {
-          promoted.role = 'primary';
           newPrimaries.push(promoted);
           showToast(`${gs.student.name} marked absent. ${promoted.student?.name} substituted in!`, 'info');
         }
@@ -141,7 +147,7 @@ function PlayModal({ game, onClose, showToast }: { game: Game; onClose: () => vo
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="fixed inset-0 z-[300] flex flex-col items-center justify-center"
+      className="fixed inset-0 z-[300] flex flex-col items-center overflow-y-auto py-16"
       style={{ background: 'rgba(0,0,0,0.95)', backdropFilter: 'blur(8px)' }}
     >
       {/* Close */}
@@ -442,9 +448,15 @@ export default function Games() {
       const batch = await revealNextBatch({ count: selectCount, gender }, subCount);
       if (!batch) {
         showToast('No present students to pick from.', 'error');
+        await deleteGame(game.id); // BUG FIX: delete orphaned game
         await loadGames();
         setShowCreate(false);
         return;
+      }
+
+      // Warn about queue exhaustion
+      if (batch.queueExhausted && (batch.primaries.length < selectCount || batch.substitutes.length < subCount)) {
+        showToast(`Only ${batch.primaries.length + batch.substitutes.length} students available — queue exhausted.`, 'info');
       }
 
       // 3. Save picked students to game
