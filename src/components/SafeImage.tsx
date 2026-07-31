@@ -65,6 +65,13 @@ export const SafeImage: React.FC<SafeImageProps> = ({
     if (!src) return;
     revokeObjectUrl();
 
+    // Prevent Security Error if the database contains local file paths (e.g., file:///)
+    if (src.startsWith('file://') && window.location.protocol !== 'file:') {
+      console.warn('Blocked attempt to load local file URI from web:', src);
+      if (fallbackSrc) setImgSrc(fallbackSrc);
+      return;
+    }
+
     if (!isHeicUrl(src)) {
       setImgSrc(src);
       return;
