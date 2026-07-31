@@ -12,9 +12,15 @@ export function getAvatarUrl(studentId: string, gender?: 'male' | 'female'): str
 
 // ─── HEIC converter (shared helper) ──────────────────────────────────────────
 async function convertHeicUrl(src: string): Promise<string> {
+  console.log('Attempting HEIC conversion for:', src);
   const response = await fetch(src);
+  if (!response.ok) {
+    throw new Error(`Fetch failed: ${response.status} ${response.statusText}`);
+  }
   const blob = await response.blob();
-  const heic2any = (await import('heic2any')).default;
+  const heicModule = await import('heic2any');
+  const heic2any = heicModule.default || heicModule;
+  
   const result = await heic2any({ blob, toType: 'image/jpeg', quality: 0.85 });
   const resultBlob = Array.isArray(result) ? result[0] : result;
   return URL.createObjectURL(resultBlob);
@@ -112,7 +118,8 @@ export const SafeImage: React.FC<SafeImageProps> = ({
       revokeObjectUrl();
       objectUrlRef.current = objUrl;
       setImgSrc(objUrl);
-    } catch {
+    } catch (err) {
+      console.error('HEIC conversion failed:', err);
       // Conversion failed too — use fallback
       if (fallbackSrc) setImgSrc(fallbackSrc);
     } finally {
