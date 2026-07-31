@@ -4,7 +4,7 @@ import { Plus, Play, Pencil, Trash2, X, Check, Users, Gamepad2, ChevronRight } f
 import { fetchGames, createGame, updateGame, deleteGame, saveStudentsToGame, fetchGameStudents } from '../services/gameService';
 import { toggleStudentPresence } from '../services/studentService';
 import { revealNextBatch } from '../services/pickerService';
-import { getAvatarUrl } from '../components/SafeImage';
+import { getAvatarUrl, SafeImage } from '../components/SafeImage';
 import type { Game, GameStudent } from '../types';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -210,10 +210,11 @@ function PlayModal({ game, onClose, showToast }: { game: Game; onClose: () => vo
                     >
                       <X size={14} />
                     </button>
-                    <img
+                    <SafeImage
                       src={student.image_file || getAvatarUrl(student.id, student.gender)}
+                      fallbackSrc={getAvatarUrl(student.id, student.gender)}
                       alt={student.name}
-                      className="w-full h-full object-cover"
+                      className="w-full h-full"
                     />
                   </div>
                   <div className="text-center">
@@ -243,10 +244,11 @@ function PlayModal({ game, onClose, showToast }: { game: Game; onClose: () => vo
               return (
                 <div key={gs.id} className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-[#222] bg-[#111]">
                   <div className="w-7 h-7 rounded overflow-hidden">
-                    <img
+                    <SafeImage
                       src={student.image_file || getAvatarUrl(student.id, student.gender)}
+                      fallbackSrc={getAvatarUrl(student.id, student.gender)}
                       alt={student.name}
-                      className="w-full h-full object-cover"
+                      className="w-full h-full"
                     />
                   </div>
                   <span className="text-[#888] text-sm">{student.name}</span>
