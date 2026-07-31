@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 
 // ─── Avatar helper ────────────────────────────────────────────────────────────
 export function getAvatarUrl(studentId: string, gender?: 'male' | 'female'): string {
@@ -8,6 +8,21 @@ export function getAvatarUrl(studentId: string, gender?: 'male' | 'female'): str
   const count = g === 'female' ? 9 : 11; // female: 1..9, male: 1..11
   const num = String((hash % count) + 1).padStart(2, '0'); // e.g. 01, 02 ... 11
   return `${base}avatars/${g}_${num}.png`;
+}
+
+// ─── HEIC converter (shared helper) ──────────────────────────────────────────
+async function convertHeicUrl(src: string): Promise<string> {
+  const response = await fetch(src);
+  const blob = await response.blob();
+  const heic2any = (await import('heic2any')).default;
+  const result = await heic2any({ blob, toType: 'image/jpeg', quality: 0.85 });
+  const resultBlob = Array.isArray(result) ? result[0] : result;
+  return URL.createObjectURL(resultBlob);
+}
+
+function isHeicUrl(url: string): boolean {
+  const clean = url.split('?')[0].split('#')[0];
+  return /\.(heic|heif)$/i.test(clean);
 }
 
 // ─── SafeImage ────────────────────────────────────────────────────────────────
@@ -22,7 +37,6 @@ export const SafeImage: React.FC<SafeImageProps> = ({
   fallbackSrc,
   className,
   alt,
-  onError,
   shimmer = true,
   ...props
 }) => {
@@ -30,52 +44,44 @@ export const SafeImage: React.FC<SafeImageProps> = ({
   const [converting, setConverting] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const imgRef = useRef<HTMLImageElement>(null);
+  // Track object URLs we create so we can revoke them
+  const objectUrlRef = useRef<string | null>(null);
 
+  const revokeObjectUrl = () => {
+    if (objectUrlRef.current) {
+      URL.revokeObjectURL(objectUrlRef.current);
+      objectUrlRef.current = null;
+    }
+  };
+
+  // ── On src change: if URL explicitly ends in .heic/.heif, convert up-front ──
   useEffect(() => {
     if (!src) return;
+    revokeObjectUrl();
 
-    const urlWithoutQuery = src.split('?')[0].split('#')[0];
-    const isHeic = /\.(heic|heif)$/i.test(urlWithoutQuery);
-
-    if (!isHeic) {
+    if (!isHeicUrl(src)) {
       setImgSrc(src);
       return;
     }
 
     let isMounted = true;
-    let objectUrl: string | null = null;
+    setConverting(true);
 
-    const convertHeic = async () => {
-      setConverting(true);
-      try {
-        const response = await fetch(src);
-        const blob = await response.blob();
-        const heic2any = (await import('heic2any')).default;
-        const result = await heic2any({ blob, toType: 'image/jpeg', quality: 0.8 });
-        const resultBlob = Array.isArray(result) ? result[0] : result;
-        if (isMounted) {
-          objectUrl = URL.createObjectURL(resultBlob);
-          setImgSrc(objectUrl);
-        }
-      } catch {
-        if (isMounted) setImgSrc(src);
-      } finally {
-        if (isMounted) setConverting(false);
-      }
-    };
+    convertHeicUrl(src)
+      .then(objUrl => {
+        if (!isMounted) { URL.revokeObjectURL(objUrl); return; }
+        objectUrlRef.current = objUrl;
+        setImgSrc(objUrl);
+      })
+      .catch(() => { if (isMounted) setImgSrc(src); })
+      .finally(() => { if (isMounted) setConverting(false); });
 
-    convertHeic();
-    return () => {
-      isMounted = false;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
-    };
+    return () => { isMounted = false; };
   }, [src]);
 
-  // ── Key fix: if the image is already cached the browser won't fire onLoad.
-  // After imgSrc is set, check img.complete immediately (next tick).
+  // ── Key fix: cached images won't fire onLoad — check img.complete immediately ──
   useEffect(() => {
     setLoaded(false);
-    // Use setTimeout(0) to let the browser assign the new src first
     const timer = setTimeout(() => {
       if (imgRef.current?.complete && imgRef.current.naturalWidth > 0) {
         setLoaded(true);
@@ -83,6 +89,36 @@ export const SafeImage: React.FC<SafeImageProps> = ({
     }, 0);
     return () => clearTimeout(timer);
   }, [imgSrc]);
+
+  // Cleanup object URLs on unmount
+  useEffect(() => () => revokeObjectUrl(), []);
+
+  // ── On image error: try HEIC conversion regardless of extension ─────────────
+  // This handles cases where: Supabase URL has no extension, or file is HEIC
+  // but was renamed to .jpg/.png (common with iPhone photos saved manually).
+  const handleError = useCallback(async () => {
+    setLoaded(true); // always dismiss shimmer
+
+    // Already tried conversion or already an object URL — fall back
+    if (imgSrc.startsWith('blob:') || imgSrc === fallbackSrc) {
+      if (fallbackSrc && imgSrc !== fallbackSrc) setImgSrc(fallbackSrc);
+      return;
+    }
+
+    // Try HEIC conversion as a last resort
+    setConverting(true);
+    try {
+      const objUrl = await convertHeicUrl(imgSrc);
+      revokeObjectUrl();
+      objectUrlRef.current = objUrl;
+      setImgSrc(objUrl);
+    } catch {
+      // Conversion failed too — use fallback
+      if (fallbackSrc) setImgSrc(fallbackSrc);
+    } finally {
+      setConverting(false);
+    }
+  }, [imgSrc, fallbackSrc]);
 
   if (converting) {
     return (
@@ -112,10 +148,7 @@ export const SafeImage: React.FC<SafeImageProps> = ({
         className="w-full h-full object-cover"
         style={{ opacity: loaded ? 1 : 0, transition: 'opacity 0.2s ease' }}
         onLoad={() => setLoaded(true)}
-        onError={() => {
-          setLoaded(true); // hide shimmer on error too
-          if (fallbackSrc && imgSrc !== fallbackSrc) setImgSrc(fallbackSrc);
-        }}
+        onError={handleError}
         {...props}
       />
     </div>
