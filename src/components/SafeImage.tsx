@@ -5,8 +5,9 @@ export function getAvatarUrl(studentId: string, gender?: 'male' | 'female'): str
   const base = import.meta.env.BASE_URL ?? '/';
   const g = gender ?? 'male';
   const hash = studentId.split('').reduce((acc, c) => acc + c.charCodeAt(0), 0);
-  const num = (hash % 30) + 1; // 1..30
-  return `${base}avatars/${g}-${num}.png`;
+  const count = g === 'female' ? 9 : 11; // female: 1..9, male: 1..11
+  const num = String((hash % count) + 1).padStart(2, '0'); // e.g. 01, 02 ... 11
+  return `${base}avatars/${g}_${num}.png`;
 }
 
 // ─── SafeImage ────────────────────────────────────────────────────────────────
